@@ -108,15 +108,21 @@ def main():
                         fps=fps,
                     )
 
-                frame_buffers[worker_id].add(
-                    frame,
-                    timestamp,
-                )
-
                 status = zone_monitor.update(
                     worker_id=worker_id,
                     point=point,
                     timestamp=timestamp,
+                )
+
+                frame_buffers[worker_id].add(
+                    frame=frame,
+                    timestamp=timestamp,
+                    worker_id=worker_id,
+                    bbox=(x1, y1, x2, y2),
+                    foot_point=point,
+                    inside_zone=status["inside_zone"],
+                    dwell_time=status["dwell_time"],
+                    violation=status["violation"],
                 )
 
                 incident = incident_manager.update(status)
@@ -130,8 +136,11 @@ def main():
                     saved_paths = frame_buffers[
                         worker_id
                     ].save(
-                        OUTPUT_DIR,
-                        incident_id,
+                        output_dir=OUTPUT_DIR,
+                        incident_id=incident_id,
+                        entry_time=incident.start_time,
+                        violation_time=incident.violation_time,
+                        exit_time=incident.end_time,
                     )
 
                     print("\nIncident completed:")
@@ -165,6 +174,14 @@ def main():
                     (x2, y2),
                     (0, 255, 0),
                     2,
+                )
+
+                cv2.circle(
+                    frame,
+                    point,
+                    5,
+                    (255, 0, 0),
+                    -1,
                 )
 
                 cv2.putText(

@@ -12,40 +12,80 @@ class FrameBuffer:
     ):
         max_frames = max(1, int(buffer_seconds * fps))
 
-        self.frames = deque(
-            maxlen=max_frames
-        )
+        self.frames = deque(maxlen=max_frames)
 
-    def add(self, frame, timestamp):
+    def add(
+        self,
+        frame,
+        timestamp,
+        worker_id=None,
+        bbox=None,
+        foot_point=None,
+        inside_zone=False,
+        dwell_time=0.0,
+        violation=False,
+    ):
         self.frames.append(
             {
-                "timestamp": timestamp,
                 "frame": frame.copy(),
+                "timestamp": timestamp,
+                "worker_id": worker_id,
+                "bbox": bbox,
+                "foot_point": foot_point,
+                "inside_zone": inside_zone,
+                "dwell_time": dwell_time,
+                "violation": violation,
             }
         )
 
     def get_frames(self):
         return list(self.frames)
 
-    def get_representative_frames(
+    def get_event_frames(
         self,
-        count: int = 8,
+        entry_time,
+        violation_time,
+        exit_time,
+        count=8,
     ):
         frames = list(self.frames)
 
         if not frames:
             return []
 
-        if len(frames) <= count:
-            return frames
+        event_frames = []
 
-        step = (len(frames) - 1) / (count - 1)
+        for item in frames:
+            timestamp = item["timestamp"]
+
+            if timestamp <= entry_time:
+                event_frames.append(item)
+
+            elif (
+                violation_time > 0
+                and timestamp >= violation_time
+            ):
+                event_frames.append(item)
+
+            elif (
+                exit_time is not None
+                and timestamp >= exit_time
+            ):
+                event_frames.append(item)
+
+        if not event_frames:
+            event_frames = frames
+
+        if len(event_frames) <= count:
+            return event_frames
+
+        step = (len(event_frames) - 1) / (count - 1)
 
         selected = []
 
         for i in range(count):
             index = round(i * step)
-            selected.append(frames[index])
+            selected.append(event_frames[index])
 
         return selected
 
@@ -56,7 +96,10 @@ class FrameBuffer:
         self,
         output_dir,
         incident_id,
-        count: int = 8,
+        entry_time,
+        violation_time,
+        exit_time,
+        count=8,
     ):
         output_path = Path(output_dir)
         output_path.mkdir(
@@ -73,8 +116,11 @@ class FrameBuffer:
             exist_ok=True,
         )
 
-        frames = self.get_representative_frames(
-            count=count
+        frames = self.get_event_frames(
+            entry_time=entry_time,
+            violation_time=violation_time,
+            exit_time=exit_time,
+            count=count,
         )
 
         saved_paths = []
