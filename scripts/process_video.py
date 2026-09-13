@@ -1,23 +1,30 @@
 import cv2
+from dotenv import load_dotenv
 
 from app.detection.tracker import WorkerTracker
 from app.detection.zone_monitor import ZoneMonitor
 from app.detection.zone_selector import ZoneSelector
 from app.incidents.incident_manager import IncidentManager
 from app.incidents.frame_buffer import FrameBuffer
+from app.vlm.analyzer import VLMAnalyzer
 
 
 VIDEO_PATH = "data/videos/test_video.mp4"
 OUTPUT_DIR = "data/incident_frames"
+
 DWELL_THRESHOLD = 5.0
 BUFFER_SECONDS = 5.0
+
+STARTUP_TIMES = [0.5, 1.5, 2.5]
 
 
 def open_video(path):
     cap = cv2.VideoCapture(path)
 
     if not cap.isOpened():
-        raise RuntimeError(f"Could not open video: {path}")
+        raise RuntimeError(
+            f"Could not open video: {path}"
+        )
 
     return cap
 
@@ -26,7 +33,9 @@ def select_zone(cap):
     ret, frame = cap.read()
 
     if not ret:
-        raise RuntimeError("Could not read video frame.")
+        raise RuntimeError(
+            "Could not read video frame."
+        )
 
     selector = ZoneSelector(frame)
     zone = selector.select()
@@ -39,7 +48,66 @@ def select_zone(cap):
     return zone
 
 
+def extract_startup_frames(cap):
+    frames = []
+
+    for target_time in STARTUP_TIMES:
+        cap.set(
+            cv2.CAP_PROP_POS_MSEC,
+            target_time * 1000,
+        )
+
+        ret, frame = cap.read()
+
+        if ret:
+            frames.append(
+                {
+                    "timestamp": target_time,
+                    "frame": frame,
+                }
+            )
+
+    return frames
+
+
+def analyze_scene(cap):
+    print("\nAnalyzing startup scene...")
+
+    startup_frames = extract_startup_frames(cap)
+
+    if not startup_frames:
+        print(
+            "Could not extract startup frames."
+        )
+        return None
+
+    analyzer = VLMAnalyzer()
+
+    scene_context = analyzer.analyze_startup_frames(
+        startup_frames
+    )
+
+    print("\nDetected fixed equipment:")
+
+    if not scene_context.machines:
+        print("No fixed equipment detected.")
+    else:
+        for index, machine in enumerate(
+            scene_context.machines,
+            start=1,
+        ):
+            print(
+                f"machine_{index}: "
+                f"{machine.machine_type} "
+                f"({machine.location})"
+            )
+
+    return scene_context
+
+
 def main():
+    load_dotenv()
+
     cap = open_video(VIDEO_PATH)
 
     zone = select_zone(cap)
@@ -48,7 +116,15 @@ def main():
     print(zone)
 
     cap.release()
+
     cap = open_video(VIDEO_PATH)
+
+    scene_context = analyze_scene(cap)
+
+    if scene_context is None:
+        print(
+            "\nContinuing without scene context."
+        )
 
     tracker = WorkerTracker()
 
@@ -74,7 +150,10 @@ def main():
         if not ret:
             break
 
-        frame_number = cap.get(cv2.CAP_PROP_POS_FRAMES)
+        frame_number = cap.get(
+            cv2.CAP_PROP_POS_FRAMES
+        )
+
         timestamp = frame_number / fps
 
         detected_worker_ids = set()
@@ -83,7 +162,11 @@ def main():
         result = results[0]
 
         if result.boxes.id is not None:
-            boxes = result.boxes.xyxy.cpu().numpy()
+            boxes = (
+                result.boxes.xyxy
+                .cpu()
+                .numpy()
+            )
 
             track_ids = (
                 result.boxes.id
@@ -92,10 +175,17 @@ def main():
                 .astype(int)
             )
 
-            for box, worker_id in zip(boxes, track_ids):
-                detected_worker_ids.add(worker_id)
+            for box, worker_id in zip(
+                boxes,
+                track_ids,
+            ):
+                detected_worker_ids.add(
+                    worker_id
+                )
 
-                x1, y1, x2, y2 = box.astype(int)
+                x1, y1, x2, y2 = (
+                    box.astype(int)
+                )
 
                 point = (
                     int((x1 + x2) / 2),
@@ -103,9 +193,11 @@ def main():
                 )
 
                 if worker_id not in frame_buffers:
-                    frame_buffers[worker_id] = FrameBuffer(
-                        buffer_seconds=BUFFER_SECONDS,
-                        fps=fps,
+                    frame_buffers[worker_id] = (
+                        FrameBuffer(
+                            buffer_seconds=BUFFER_SECONDS,
+                            fps=fps,
+                        )
                     )
 
                 status = zone_monitor.update(
@@ -118,14 +210,29 @@ def main():
                     frame=frame,
                     timestamp=timestamp,
                     worker_id=worker_id,
-                    bbox=(x1, y1, x2, y2),
+                    bbox=(
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                    ),
                     foot_point=point,
-                    inside_zone=status["inside_zone"],
-                    dwell_time=status["dwell_time"],
-                    violation=status["violation"],
+                    inside_zone=status[
+                        "inside_zone"
+                    ],
+                    dwell_time=status[
+                        "dwell_time"
+                    ],
+                    violation=status[
+                        "violation"
+                    ],
                 )
 
-                incident = incident_manager.update(status)
+                incident = (
+                    incident_manager.update(
+                        status
+                    )
+                )
 
                 if incident is not None:
                     incident_id = (
@@ -133,17 +240,27 @@ def main():
                         f"{int(incident.violation_time)}"
                     )
 
-                    saved_paths = frame_buffers[
-                        worker_id
-                    ].save(
-                        output_dir=OUTPUT_DIR,
-                        incident_id=incident_id,
-                        entry_time=incident.start_time,
-                        violation_time=incident.violation_time,
-                        exit_time=incident.end_time,
+                    saved_paths = (
+                        frame_buffers[
+                            worker_id
+                        ].save(
+                            output_dir=OUTPUT_DIR,
+                            incident_id=incident_id,
+                            entry_time=(
+                                incident.start_time
+                            ),
+                            violation_time=(
+                                incident.violation_time
+                            ),
+                            exit_time=(
+                                incident.end_time
+                            ),
+                        )
                     )
 
-                    print("\nIncident completed:")
+                    print(
+                        "\nIncident completed:"
+                    )
                     print(incident)
 
                     print("Saved frames:")
@@ -151,7 +268,9 @@ def main():
                     for path in saved_paths:
                         print(path)
 
-                    frame_buffers[worker_id].clear()
+                    frame_buffers[
+                        worker_id
+                    ].clear()
 
                 if status["violation"]:
                     label = (
@@ -159,14 +278,18 @@ def main():
                         f"UNSAFE | "
                         f"{status['dwell_time']:.1f}s"
                     )
+
                 elif status["inside_zone"]:
                     label = (
                         f"WORKER {worker_id} | "
                         f"INSIDE | "
                         f"{status['dwell_time']:.1f}s"
                     )
+
                 else:
-                    label = f"WORKER {worker_id}"
+                    label = (
+                        f"WORKER {worker_id}"
+                    )
 
                 cv2.rectangle(
                     frame,
@@ -187,7 +310,10 @@ def main():
                 cv2.putText(
                     frame,
                     label,
-                    (x1, max(y1 - 10, 20)),
+                    (
+                        x1,
+                        max(y1 - 10, 20),
+                    ),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.6,
                     (0, 0, 255),
@@ -197,9 +323,14 @@ def main():
         for worker_id in list(
             incident_manager.active_incidents
         ):
-            if worker_id not in detected_worker_ids:
-                incident = incident_manager.mark_missing(
-                    worker_id
+            if (
+                worker_id
+                not in detected_worker_ids
+            ):
+                incident = (
+                    incident_manager.mark_missing(
+                        worker_id
+                    )
                 )
 
                 if incident is not None:
@@ -209,7 +340,9 @@ def main():
                     )
                     print(incident)
 
-        frame = zone_monitor.draw_zone(frame)
+        frame = zone_monitor.draw_zone(
+            frame
+        )
 
         cv2.imshow(
             "Industrial Worker Safety Inspector",
@@ -226,7 +359,10 @@ def main():
 
     print("\nCompleted incidents:")
 
-    for incident in incident_manager.get_completed_incidents():
+    for incident in (
+        incident_manager
+        .get_completed_incidents()
+    ):
         print(incident)
 
 

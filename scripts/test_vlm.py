@@ -7,10 +7,13 @@ from app.vlm.analyzer import VLMAnalyzer
 
 
 VIDEO_PATH = "data/videos/test_video.mp4"
+OUTPUT_DIR = "outputs/vlm_startup_frames"
 
 
 def main():
     load_dotenv()
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     cap = cv2.VideoCapture(VIDEO_PATH)
 
@@ -19,16 +22,11 @@ def main():
             f"Could not open video: {VIDEO_PATH}"
         )
 
-    fps = cap.get(cv2.CAP_PROP_FPS)
-
-    if fps <= 0:
-        fps = 30.0
-
     frames = []
 
     target_times = [0.5, 1.5, 2.5]
 
-    for target_time in target_times:
+    for index, target_time in enumerate(target_times):
         cap.set(
             cv2.CAP_PROP_POS_MSEC,
             target_time * 1000,
@@ -36,13 +34,21 @@ def main():
 
         ret, frame = cap.read()
 
-        if ret:
-            frames.append(
-                {
-                    "timestamp": target_time,
-                    "frame": frame,
-                }
-            )
+        if not ret:
+            continue
+
+        path = (
+            f"{OUTPUT_DIR}/frame_{index}.jpg"
+        )
+
+        cv2.imwrite(path, frame)
+
+        frames.append(
+            {
+                "timestamp": target_time,
+                "frame": frame,
+            }
+        )
 
     cap.release()
 
@@ -63,6 +69,13 @@ def main():
 
     print("\nVLM result:")
     print(result)
+
+    print("\nSaved startup frames:")
+
+    for index in range(len(frames)):
+        print(
+            f"{OUTPUT_DIR}/frame_{index}.jpg"
+        )
 
 
 if __name__ == "__main__":

@@ -1,20 +1,19 @@
 STARTUP_SCENE_PROMPT = """
-You are analyzing the first few frames from a fixed industrial
-workshop camera.
+Analyze these frames from a fixed industrial workshop camera.
 
-Identify only clearly visible fixed industrial machines or major
-fixed equipment.
+Identify clearly visible fixed machines and major fixed industrial
+equipment.
 
-For each machine provide:
-- machine_id
+For each item provide:
 - machine_type
-- approximate_location_in_frame
-- static
+- location
 
-Do not invent machines that are not clearly visible.
+Use a general description when the exact machine type is uncertain.
 
-The camera is fixed, so machines that are clearly visible should
-normally remain in the same scene location during this video.
+Do not invent objects that are not visible.
 
-Return the result using the provided JSON schema.
+Because the camera is fixed, the same physical equipment visible
+across multiple frames should be represented only once.
+
+Return only the requested structured data.
 """

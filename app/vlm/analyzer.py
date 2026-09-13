@@ -5,6 +5,7 @@ import os
 import cv2
 from groq import Groq
 
+from app.vlm.models import SceneContext
 from app.vlm.prompts import STARTUP_SCENE_PROMPT
 
 
@@ -16,24 +17,25 @@ MACHINE_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "machine_id": {
-                        "type": "string"
-                    },
                     "machine_type": {
                         "type": "string"
                     },
-                    "approximate_location_in_frame": {
+                    "location": {
                         "type": "string"
                     },
-                    "static": {
-                        "type": "boolean"
+                    "bbox": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "minItems": 4,
+                        "maxItems": 4
                     }
                 },
                 "required": [
-                    "machine_id",
                     "machine_type",
-                    "approximate_location_in_frame",
-                    "static"
+                    "location",
+                    "bbox"
                 ],
                 "additionalProperties": False
             }
@@ -66,9 +68,9 @@ class VLMAnalyzer:
 
     def analyze_startup_frames(self, frames):
         if not frames:
-            return {
-                "machines": []
-            }
+            return SceneContext(
+                machines=[]
+            )
 
         content = [
             {
@@ -119,10 +121,12 @@ class VLMAnalyzer:
                 },
             },
             reasoning_effort="none",
-            temperature=0.7,
-            max_completion_tokens=1000,
+            temperature=0.2,
+            max_completion_tokens=700,
         )
 
         result = response.choices[0].message.content
 
-        return json.loads(result)
+        return SceneContext.model_validate(
+            json.loads(result)
+        )
