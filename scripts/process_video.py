@@ -2,8 +2,7 @@ import cv2
 from dotenv import load_dotenv
 
 from app.detection.tracker import WorkerTracker
-from app.detection.zone_monitor import ZoneMonitor
-from app.detection.zone_selector import ZoneSelector
+from app.detection.safety_zone import SafetyZoneGenerator
 from app.incidents.incident_manager import IncidentManager
 from app.incidents.frame_buffer import FrameBuffer
 from app.vlm.analyzer import VLMAnalyzer
@@ -27,25 +26,6 @@ def open_video(path):
         )
 
     return cap
-
-
-def select_zone(cap):
-    ret, frame = cap.read()
-
-    if not ret:
-        raise RuntimeError(
-            "Could not read video frame."
-        )
-
-    selector = ZoneSelector(frame)
-    zone = selector.select()
-
-    if len(zone) < 3:
-        raise RuntimeError(
-            "A valid zone requires at least 3 points."
-        )
-
-    return zone
 
 
 def extract_startup_frames(cap):
@@ -99,23 +79,108 @@ def analyze_scene(cap):
             print(
                 f"machine_{index}: "
                 f"{machine.machine_type} "
-                f"({machine.location})"
+                f"({machine.location}) "
+                f"bbox={machine.bbox}"
             )
 
     return scene_context
 
 
+def generate_safety_zones(
+    scene_context,
+    frame_width,
+    frame_height,
+):
+    generator = SafetyZoneGenerator(
+        side_padding=35,
+        front_padding=90,
+        top_padding=15,
+    )
+
+    zones = []
+
+    if scene_context is None:
+        return zones
+
+    for index, machine in enumerate(
+        scene_context.machines,
+        start=1,
+    ):
+        zone = generator.generate(
+            bbox=machine.bbox,
+            frame_width=frame_width,
+            frame_height=frame_height,
+        )
+
+        zones.append(
+            {
+                "machine_id": f"machine_{index}",
+                "machine_type": machine.machine_type,
+                "bbox": machine.bbox,
+                "zone": zone,
+            }
+        )
+
+    return zones
+
+
+def draw_machine_zones(
+    frame,
+    machine_zones,
+):
+    for machine in machine_zones:
+        x1, y1, x2, y2 = machine["bbox"]
+
+        zone = machine["zone"]
+
+        cv2.rectangle(
+            frame,
+            (x1, y1),
+            (x2, y2),
+            (255, 255, 0),
+            2,
+        )
+
+        for index in range(
+            len(zone)
+        ):
+            start = zone[index]
+
+            end = zone[
+                (index + 1) % len(zone)
+            ]
+
+            cv2.line(
+                frame,
+                start,
+                end,
+                (0, 0, 255),
+                2,
+            )
+
+        label = (
+            f'{machine["machine_id"]} | '
+            f'{machine["machine_type"]}'
+        )
+
+        cv2.putText(
+            frame,
+            label,
+            (
+                x1,
+                max(y1 - 10, 20),
+            ),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 0),
+            2,
+        )
+
+    return frame
+
+
 def main():
     load_dotenv()
-
-    cap = open_video(VIDEO_PATH)
-
-    zone = select_zone(cap)
-
-    print("\nSafety zone selected:")
-    print(zone)
-
-    cap.release()
 
     cap = open_video(VIDEO_PATH)
 
@@ -126,18 +191,56 @@ def main():
             "\nContinuing without scene context."
         )
 
-    tracker = WorkerTracker()
+    ret, reference_frame = cap.read()
 
-    zone_monitor = ZoneMonitor(
-        polygon=zone,
-        dwell_threshold=DWELL_THRESHOLD,
+    if not ret:
+        cap.release()
+
+        raise RuntimeError(
+            "Could not read reference frame."
+        )
+
+    frame_height, frame_width = (
+        reference_frame.shape[:2]
     )
+
+    machine_zones = generate_safety_zones(
+        scene_context=scene_context,
+        frame_width=frame_width,
+        frame_height=frame_height,
+    )
+
+    print("\nGenerated safety zones:")
+
+    for machine in machine_zones:
+        print(
+            f'{machine["machine_id"]}: '
+            f'{machine["machine_type"]}'
+        )
+
+        print(
+            f'  machine bbox: '
+            f'{machine["bbox"]}'
+        )
+
+        print(
+            f'  safety zone: '
+            f'{machine["zone"]}'
+        )
+
+    cap.release()
+
+    cap = open_video(VIDEO_PATH)
+
+    tracker = WorkerTracker()
 
     incident_manager = IncidentManager(
         max_missing_frames=15
     )
 
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    fps = cap.get(
+        cv2.CAP_PROP_FPS
+    )
 
     if fps <= 0:
         fps = 30.0
@@ -200,97 +303,6 @@ def main():
                         )
                     )
 
-                status = zone_monitor.update(
-                    worker_id=worker_id,
-                    point=point,
-                    timestamp=timestamp,
-                )
-
-                frame_buffers[worker_id].add(
-                    frame=frame,
-                    timestamp=timestamp,
-                    worker_id=worker_id,
-                    bbox=(
-                        x1,
-                        y1,
-                        x2,
-                        y2,
-                    ),
-                    foot_point=point,
-                    inside_zone=status[
-                        "inside_zone"
-                    ],
-                    dwell_time=status[
-                        "dwell_time"
-                    ],
-                    violation=status[
-                        "violation"
-                    ],
-                )
-
-                incident = (
-                    incident_manager.update(
-                        status
-                    )
-                )
-
-                if incident is not None:
-                    incident_id = (
-                        f"{incident.worker_id}_"
-                        f"{int(incident.violation_time)}"
-                    )
-
-                    saved_paths = (
-                        frame_buffers[
-                            worker_id
-                        ].save(
-                            output_dir=OUTPUT_DIR,
-                            incident_id=incident_id,
-                            entry_time=(
-                                incident.start_time
-                            ),
-                            violation_time=(
-                                incident.violation_time
-                            ),
-                            exit_time=(
-                                incident.end_time
-                            ),
-                        )
-                    )
-
-                    print(
-                        "\nIncident completed:"
-                    )
-                    print(incident)
-
-                    print("Saved frames:")
-
-                    for path in saved_paths:
-                        print(path)
-
-                    frame_buffers[
-                        worker_id
-                    ].clear()
-
-                if status["violation"]:
-                    label = (
-                        f"WORKER {worker_id} | "
-                        f"UNSAFE | "
-                        f"{status['dwell_time']:.1f}s"
-                    )
-
-                elif status["inside_zone"]:
-                    label = (
-                        f"WORKER {worker_id} | "
-                        f"INSIDE | "
-                        f"{status['dwell_time']:.1f}s"
-                    )
-
-                else:
-                    label = (
-                        f"WORKER {worker_id}"
-                    )
-
                 cv2.rectangle(
                     frame,
                     (x1, y1),
@@ -309,14 +321,14 @@ def main():
 
                 cv2.putText(
                     frame,
-                    label,
+                    f"WORKER {worker_id}",
                     (
                         x1,
                         max(y1 - 10, 20),
                     ),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.6,
-                    (0, 0, 255),
+                    (0, 255, 0),
                     2,
                 )
 
@@ -338,10 +350,12 @@ def main():
                         "\nIncident closed after "
                         "tracking loss:"
                     )
+
                     print(incident)
 
-        frame = zone_monitor.draw_zone(
-            frame
+        frame = draw_machine_zones(
+            frame,
+            machine_zones,
         )
 
         cv2.imshow(
@@ -356,14 +370,6 @@ def main():
 
     cap.release()
     cv2.destroyAllWindows()
-
-    print("\nCompleted incidents:")
-
-    for incident in (
-        incident_manager
-        .get_completed_incidents()
-    ):
-        print(incident)
 
 
 if __name__ == "__main__":

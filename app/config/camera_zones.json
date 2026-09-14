@@ -1,0 +1,14 @@
+{
+  "camera_01": {
+    "machine": "hydraulic_press",
+    "safety_zone": [
+      [55, 485],
+      [320, 455],
+      [680, 520],
+      [815, 720],
+      [760, 900],
+      [70, 900]
+    ],
+    "dwell_threshold_seconds": 5
+  }
+}

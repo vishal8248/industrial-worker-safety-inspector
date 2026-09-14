@@ -4,7 +4,7 @@ from pydantic import BaseModel
 class Machine(BaseModel):
     machine_type: str
     location: str
-    bbox: list[int]
+    points: list[list[int]]
 
 
 class SceneContext(BaseModel):

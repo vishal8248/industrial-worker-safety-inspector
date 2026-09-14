@@ -23,19 +23,24 @@ MACHINE_SCHEMA = {
                     "location": {
                         "type": "string"
                     },
-                    "bbox": {
+                    "points": {
                         "type": "array",
                         "items": {
-                            "type": "integer"
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
                         },
-                        "minItems": 4,
-                        "maxItems": 4
+                        "minItems": 3,
+                        "maxItems": 5
                     }
                 },
                 "required": [
                     "machine_type",
                     "location",
-                    "bbox"
+                    "points"
                 ],
                 "additionalProperties": False
             }
@@ -121,8 +126,8 @@ class VLMAnalyzer:
                 },
             },
             reasoning_effort="none",
-            temperature=0.2,
-            max_completion_tokens=700,
+            temperature=0.1,
+            max_completion_tokens=900,
         )
 
         result = response.choices[0].message.content

@@ -44,7 +44,7 @@ class ZoneMonitor:
         worker_id: int,
         point: Point,
         timestamp: float,
-    ):
+    ) -> dict:
         inside = self.is_inside(point)
 
         state = self.worker_states.setdefault(
@@ -70,6 +70,7 @@ class ZoneMonitor:
                 )
 
             state.inside = False
+            state.entered_at = None
 
         violation = (
             state.inside
