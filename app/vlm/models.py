@@ -1,11 +1,15 @@
 from pydantic import BaseModel
 
 
-class Machine(BaseModel):
-    machine_type: str
-    location: str
-    points: list[list[int]]
+class SafetyObservations(BaseModel):
+    phone_usage: bool
+    ppe_violation: bool
+    machine_interaction: bool
+    unsafe_position: bool
+    evidence: list[str]
 
 
-class SceneContext(BaseModel):
-    machines: list[Machine]
+class IncidentAnalysis(BaseModel):
+    worker_id: int
+    timestamp: float
+    observations: SafetyObservations

@@ -13,6 +13,7 @@ class WorkerZoneState:
     inside: bool = False
     entered_at: float | None = None
     dwell_time: float = 0.0
+    violation_reported: bool = False
 
 
 class ZoneMonitor:
@@ -52,16 +53,28 @@ class ZoneMonitor:
             WorkerZoneState(),
         )
 
+        event = None
+
         if inside and not state.inside:
             state.inside = True
             state.entered_at = timestamp
             state.dwell_time = 0.0
+            state.violation_reported = False
+
+            event = "ENTERED"
 
         elif inside and state.inside:
             if state.entered_at is not None:
                 state.dwell_time = (
                     timestamp - state.entered_at
                 )
+
+            if (
+                state.dwell_time >= self.dwell_threshold
+                and not state.violation_reported
+            ):
+                state.violation_reported = True
+                event = "VIOLATION"
 
         elif not inside and state.inside:
             if state.entered_at is not None:
@@ -72,10 +85,7 @@ class ZoneMonitor:
             state.inside = False
             state.entered_at = None
 
-        violation = (
-            state.inside
-            and state.dwell_time >= self.dwell_threshold
-        )
+            event = "EXITED"
 
         return {
             "worker_id": worker_id,
@@ -84,7 +94,8 @@ class ZoneMonitor:
                 state.dwell_time,
                 2,
             ),
-            "violation": violation,
+            "violation": state.violation_reported,
+            "event": event,
             "timestamp": timestamp,
         }
 

@@ -1,0 +1,88 @@
+INDUSTRIAL WORKPLACE SAFETY SOP
+
+Document: General Industrial Workplace Safety Procedures
+Version: 1.0
+
+1. MOBILE PHONE USAGE
+
+Mobile phone use is prohibited while a worker is actively performing
+industrial work or operating machinery, unless the phone is required for
+an authorized work task.
+
+If unauthorized mobile phone use is observed:
+
+1. Stop the unsafe activity when it is safe to do so.
+2. Inform the worker that personal mobile phone use is not permitted during
+   active work.
+3. If the behavior continues or creates an immediate safety concern, notify
+   the responsible supervisor.
+4. Record the incident with the available visual evidence and timestamp.
+
+Required incident information:
+- Worker tracking ID
+- Incident timestamp
+- Visual evidence
+- Camera identifier
+- Relevant work area or machine
+
+2. PERSONAL PROTECTIVE EQUIPMENT
+
+Workers must use the PPE required for their assigned work area and task.
+
+PPE requirements should only be considered violated when the required PPE
+and its absence can be established from reliable information.
+
+If a PPE non-compliance incident is confirmed:
+
+1. Notify the worker when safe to do so.
+2. Request correction of the PPE issue.
+3. Escalate repeated or serious violations to the supervisor.
+4. Record the incident and supporting evidence.
+
+3. UNSAFE MACHINE INTERACTION
+
+Workers must not interact with industrial machinery in a manner that creates
+an unsafe condition.
+
+If unsafe machine interaction is confirmed:
+
+1. Stop the unsafe activity when it is safe to do so.
+2. Keep the worker clear of the hazardous area.
+3. Notify the responsible supervisor.
+4. Record the incident with visual evidence.
+
+For machine-related incidents, include:
+- Machine or work area
+- Worker tracking ID
+- Timestamp
+- Camera identifier
+- Visual evidence
+
+4. UNSAFE POSITION
+
+A worker may be considered to be in an unsafe position when their physical
+position is clearly exposed to a hazardous condition.
+
+If an unsafe position is confirmed:
+
+1. Alert the worker when safe to do so.
+2. Move the worker away from the hazardous position if appropriate.
+3. Notify the supervisor for serious or repeated conditions.
+4. Record the incident and available evidence.
+
+5. INCIDENT REPORTING
+
+Every confirmed safety incident should contain:
+
+- Incident type
+- Worker tracking ID
+- Timestamp
+- Camera identifier
+- Machine or work area when relevant
+- Observed evidence
+- Applicable SOP guidance
+- Recommended immediate action
+
+The incident report must distinguish between directly observed evidence and
+assumptions. Information that cannot be visually established should not be
+presented as fact.

@@ -5,7 +5,7 @@ from pathlib import Path
 class ZoneConfig:
     def __init__(
         self,
-        config_path: str = "config/camera_zones.json",
+        config_path: str = "app/config/camera_zones.json",
     ):
         self.config_path = Path(config_path)
 

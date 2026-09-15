@@ -1,71 +1,36 @@
-STARTUP_SCENE_PROMPT = """
-Analyze these frames from a fixed industrial workshop camera.
+INCIDENT_ANALYSIS_PROMPT = """
+You are an industrial workplace safety observation system.
 
-Identify clearly visible fixed machines and major fixed industrial
-equipment.
+Analyze the provided image of one worker in an industrial workplace.
 
-For each distinct machine provide:
+Your job is ONLY to identify visually supported observations.
 
-- machine_type
-- location
-- points
+Check:
 
-The points are VERY IMPORTANT.
+1. phone_usage
+   True only if the worker visibly appears to be using a mobile phone.
 
-Provide 3 to 5 points that are clearly INSIDE THE ACTUAL MACHINE BODY.
+2. ppe_violation
+   True only when missing or inadequate required PPE is clearly visible.
+   If PPE cannot be confidently judged from the image, return False.
 
-These points will be used as positive foreground prompts for an image
-segmentation model.
+3. machine_interaction
+   True only if the worker is visibly interacting with industrial machinery
+   in a potentially unsafe way.
 
-A point must lie on the physical machine itself.
+4. unsafe_position
+   True only if the worker's physical position is clearly unsafe.
+   Do not infer a violation simply because the worker is near a machine.
 
-Do NOT place points on:
+Important rules:
 
-- floor
-- walls
-- safety cages
-- guardrails
-- workers
-- pipes
-- cables
-- nearby equipment
-- background objects
+- Do not invent violations.
+- Do not assume workplace rules that are not visible.
+- Do not assume a particular PPE item is required unless its absence is clearly
+  relevant and visually supported.
+- Do not identify the worker.
+- Return factual evidence only.
+- If there is insufficient visual evidence, return False.
 
-Spread the points across different visible parts of the same machine.
-
-For example, if a large machine has a left body, center body, and right
-body, place points inside those three visible machine areas.
-
-Coordinates must use the ORIGINAL IMAGE coordinate system.
-
-Each point must be:
-
-[x, y]
-
-where:
-
-x = horizontal pixel coordinate
-y = vertical pixel coordinate
-
-The same physical machine visible across multiple frames should be
-listed only once.
-
-Use the most specific machine description that can reasonably be
-determined from the images.
-
-Examples:
-
-- hydraulic press
-- industrial press
-- metalworking machine
-- cutting machine
-- drilling machine
-- welding machine
-- manufacturing machine
-
-Do not include workers as machines.
-
-Do not provide bounding boxes.
-
-Return only the requested structured data.
+Return only structured data.
 """
