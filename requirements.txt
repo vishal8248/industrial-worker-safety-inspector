@@ -1,0 +1,13 @@
+ultralytics
+opencv-python
+numpy
+pydantic
+python-dotenv
+groq
+langchain
+langchain-community
+langchain-huggingface
+langgraph
+faiss-cpu
+sentence-transformers
+huggingface-hub
