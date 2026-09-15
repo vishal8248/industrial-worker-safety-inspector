@@ -8,169 +8,176 @@ from app.detection.tracker import WorkerTracker
 from app.detection.zone_monitor import ZoneMonitor
 from app.rules.safety_rules import SafetyRules
 from app.vlm.analyzer import VLMAnalyzer
+from app.workflow.incident_graph import build_incident_graph
 
 
 VIDEO_PATH = "data/videos/test_video.mp4"
 CAMERA_ID = "camera_01"
 
 VLM_INTERVAL_SECONDS = 5.0
+NOTIFICATION_COOLDOWN_SECONDS = 120.0
 
 
-def open_video(path):
-    cap = cv2.VideoCapture(path)
+def clean_evidence(evidence):
+    cleaned = []
+
+    for item in evidence:
+        text = str(item).strip()
+
+        while text.startswith(">"):
+            text = text[1:].strip()
+
+        if text:
+            cleaned.append(text)
+
+    return cleaned
+
+
+def main():
+    load_dotenv()
+
+    zone_config = ZoneConfig()
+
+    camera_config = zone_config.get_camera_config(
+        CAMERA_ID
+    )
+
+    machine = camera_config["machine"]
+    polygon = camera_config["safety_zone"]
+    dwell_threshold = camera_config[
+        "dwell_threshold_seconds"
+    ]
+
+    tracker = WorkerTracker()
+    vlm = VLMAnalyzer()
+    safety_rules = SafetyRules()
+    incident_graph = build_incident_graph()
+
+    zone_monitor = ZoneMonitor(
+        polygon=polygon,
+        dwell_threshold=dwell_threshold,
+    )
+
+    cap = cv2.VideoCapture(VIDEO_PATH)
 
     if not cap.isOpened():
         raise RuntimeError(
-            f"Could not open video: {path}"
+            f"Could not open video: {VIDEO_PATH}"
         )
 
-    return cap
-
-
-def draw_kavach(frame, polygon):
-    points = [
-        tuple(point)
-        for point in polygon
-    ]
-
-    for index in range(len(points)):
-        start = points[index]
-        end = points[
-            (index + 1) % len(points)
-        ]
-
-        cv2.line(
-            frame,
-            start,
-            end,
-            (0, 0, 255),
-            3,
-        )
-
-    return frame
-
-
-def draw_worker(
-    frame,
-    box,
-    worker_id,
-    zone_status,
-):
-    x1, y1, x2, y2 = box
-
-    foot_point = (
-        int((x1 + x2) / 2),
-        int(y2),
+    width = int(
+        cap.get(cv2.CAP_PROP_FRAME_WIDTH)
     )
 
-    if zone_status["inside_zone"]:
-        label = (
-            f"WORKER {worker_id} | "
-            f"KAVACH "
-            f"{zone_status['dwell_time']:.1f}s"
-        )
+    height = int(
+        cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    )
 
-        if zone_status["violation"]:
-            label = (
-                f"WORKER {worker_id} | "
-                "VIOLATION"
+    print()
+    print(
+        "Industrial Worker Safety Inspector"
+    )
+    print(
+        "----------------------------------"
+    )
+    print(
+        f"Camera: {CAMERA_ID}"
+    )
+    print(
+        f"Machine: {machine}"
+    )
+    print(
+        f"Video resolution: {width}x{height}"
+    )
+    print(
+        f"Kavach dwell threshold: "
+        f"{dwell_threshold}s"
+    )
+    print(
+        f"VLM interval: "
+        f"{VLM_INTERVAL_SECONDS}s"
+    )
+    print(
+        f"Notification cooldown: "
+        f"{NOTIFICATION_COOLDOWN_SECONDS}s"
+    )
+    print()
+    print("Press Q to exit.")
+    print()
+
+    vlm_lock = threading.Lock()
+
+    vlm_running = False
+    last_vlm_timestamp = -VLM_INTERVAL_SECONDS
+    vlm_thread = None
+
+    stop_event = threading.Event()
+
+    last_notification_times = {}
+
+    def run_vlm(
+        frame,
+        box,
+        worker_id,
+        timestamp,
+    ):
+        nonlocal vlm_running
+
+        try:
+            analysis = vlm.analyze_worker(
+                frame=frame,
+                box=box,
+                worker_id=worker_id,
+                timestamp=timestamp,
             )
 
-        box_color = (0, 0, 255)
+            observations = analysis.observations
 
-    else:
-        label = f"WORKER {worker_id}"
-        box_color = (0, 255, 0)
+            print()
+            print(
+                f"VLM observations - "
+                f"Worker {worker_id}"
+            )
 
-    cv2.rectangle(
-        frame,
-        (x1, y1),
-        (x2, y2),
-        box_color,
-        2,
-    )
+            print(
+                "Phone usage:",
+                observations.phone_usage,
+            )
 
-    cv2.circle(
-        frame,
-        foot_point,
-        6,
-        (255, 0, 0),
-        -1,
-    )
+            print(
+                "PPE violation:",
+                observations.ppe_violation,
+            )
 
-    cv2.putText(
-        frame,
-        label,
-        (
-            x1,
-            max(y1 - 10, 25),
-        ),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        box_color,
-        2,
-    )
+            print(
+                "Machine interaction:",
+                observations.machine_interaction,
+            )
 
-    return frame
+            print(
+                "Unsafe position:",
+                observations.unsafe_position,
+            )
 
+            evidence = clean_evidence(
+                observations.evidence
+            )
 
-def run_vlm_analysis(
-    vlm,
-    safety_rules,
-    frame,
-    box,
-    worker_id,
-    timestamp,
-):
-    try:
-        analysis = vlm.analyze_worker(
-            frame=frame,
-            box=box,
-            worker_id=worker_id,
-            timestamp=timestamp,
-        )
+            if evidence:
+                print("Evidence:")
 
-        observations = analysis.observations
+                for item in evidence:
+                    print(
+                        f"- {item}"
+                    )
 
-        rule_result = safety_rules.evaluate(
-            observations
-        )
+            rule_result = safety_rules.evaluate(
+                observations
+            )
 
-        print()
-        print(
-            f"VLM observations - "
-            f"Worker {worker_id}"
-        )
+            if not rule_result.incident_detected:
+                return
 
-        print(
-            f"Phone usage: "
-            f"{observations.phone_usage}"
-        )
-
-        print(
-            f"PPE violation: "
-            f"{observations.ppe_violation}"
-        )
-
-        print(
-            f"Machine interaction: "
-            f"{observations.machine_interaction}"
-        )
-
-        print(
-            f"Unsafe position: "
-            f"{observations.unsafe_position}"
-        )
-
-        if observations.evidence:
-            print("Evidence:")
-
-            for evidence in observations.evidence:
-                print(
-                    f"- {evidence}"
-                )
-
-        if rule_result.incident_detected:
             print()
             print(
                 "CONFIRMED SAFETY INCIDENT"
@@ -181,12 +188,13 @@ def run_vlm_analysis(
             )
 
             print(
-                f"Time: {timestamp:.2f}s"
+                f"Time: "
+                f"{timestamp:.2f}s"
             )
 
             print(
-                f"Types: "
-                f"{rule_result.incident_types}"
+                "Types:",
+                rule_result.incident_types,
             )
 
             print("Reasons:")
@@ -196,280 +204,392 @@ def run_vlm_analysis(
                     f"- {reason}"
                 )
 
-        print()
+            if not evidence:
+                evidence = [
+                    reason
+                    for reason in rule_result.reasons
+                ]
 
-    except Exception as error:
-        print(
-            f"VLM analysis failed for "
-            f"worker {worker_id}: {error}"
-        )
+            for incident_type in (
+                rule_result.incident_types
+            ):
+                incident_key = (
+                    worker_id,
+                    incident_type,
+                )
 
+                last_notification_time = (
+                    last_notification_times.get(
+                        incident_key
+                    )
+                )
 
-def main():
-    load_dotenv()
+                if (
+                    last_notification_time
+                    is not None
+                ):
+                    elapsed = (
+                        timestamp
+                        - last_notification_time
+                    )
 
-    zone_config = ZoneConfig()
+                    if (
+                        elapsed
+                        < NOTIFICATION_COOLDOWN_SECONDS
+                    ):
+                        remaining = max(
+                            0,
+                            NOTIFICATION_COOLDOWN_SECONDS
+                            - elapsed,
+                        )
 
-    camera_config = (
-        zone_config.get_camera_config(
-            CAMERA_ID
-        )
-    )
+                        print()
+                        print(
+                            "Notification cooldown "
+                            "active."
+                        )
 
-    polygon = [
-        tuple(point)
-        for point in camera_config[
-            "safety_zone"
-        ]
-    ]
+                        print(
+                            f"Worker: {worker_id}"
+                        )
 
-    dwell_threshold = camera_config[
-        "dwell_threshold_seconds"
-    ]
+                        print(
+                            f"Incident: "
+                            f"{incident_type}"
+                        )
 
-    zone_monitor = ZoneMonitor(
-        polygon=polygon,
-        dwell_threshold=dwell_threshold,
-    )
+                        print(
+                            f"Next notification "
+                            f"allowed in: "
+                            f"{remaining:.0f}s"
+                        )
 
-    tracker = WorkerTracker()
-    vlm = VLMAnalyzer()
-    safety_rules = SafetyRules()
+                        continue
 
-    cap = open_video(VIDEO_PATH)
+                print()
+                print(
+                    "Starting LangGraph "
+                    "incident workflow..."
+                )
 
-    fps = cap.get(
-        cv2.CAP_PROP_FPS
-    )
+                graph_result = (
+                    incident_graph.invoke(
+                        {
+                            "incident_type": (
+                                incident_type
+                            ),
+                            "worker_id": (
+                                worker_id
+                            ),
+                            "timestamp": (
+                                timestamp
+                            ),
+                            "camera_id": (
+                                CAMERA_ID
+                            ),
+                            "machine": (
+                                machine
+                            ),
+                            "evidence": (
+                                evidence
+                            ),
+                        }
+                    )
+                )
 
-    if fps <= 0:
-        fps = 30.0
+                notification_sent = (
+                    graph_result.get(
+                        "notification_sent",
+                        False,
+                    )
+                )
 
-    video_width = int(
-        cap.get(
-            cv2.CAP_PROP_FRAME_WIDTH
-        )
-    )
+                if notification_sent:
+                    last_notification_times[
+                        incident_key
+                    ] = timestamp
 
-    video_height = int(
-        cap.get(
-            cv2.CAP_PROP_FRAME_HEIGHT
-        )
-    )
+                print()
+                print(
+                    "LANGGRAPH INCIDENT WORKFLOW"
+                )
 
-    print()
-    print(
-        "Industrial Worker Safety Inspector"
-    )
-    print("----------------------------------")
-    print(
-        f"Camera: {CAMERA_ID}"
-    )
-    print(
-        f"Machine: "
-        f"{camera_config['machine']}"
-    )
-    print(
-        f"Video resolution: "
-        f"{video_width}x{video_height}"
-    )
-    print(
-        f"Kavach dwell threshold: "
-        f"{dwell_threshold}s"
-    )
-    print(
-        f"VLM interval: "
-        f"{VLM_INTERVAL_SECONDS}s"
-    )
-    print()
-    print("Press Q to exit.")
-    print()
+                print(
+                    "==========================="
+                )
 
-    window_name = (
-        "Industrial Worker Safety Inspector"
-    )
+                print()
+                print(
+                    graph_result[
+                        "incident_report"
+                    ]
+                )
 
-    cv2.namedWindow(
-        window_name,
-        cv2.WINDOW_NORMAL,
-    )
+                print()
 
-    display_width = 1280
+                if notification_sent:
+                    print(
+                        "Supervisor "
+                        "notification: SENT"
+                    )
+                else:
+                    print(
+                        "Supervisor "
+                        "notification: NOT SENT"
+                    )
 
-    aspect_ratio = (
-        video_height / video_width
-    )
+        except Exception as exc:
+            print()
+            print(
+                "VLM/incident workflow error:"
+            )
+            print(exc)
 
-    display_height = int(
-        display_width * aspect_ratio
-    )
+        finally:
+            with vlm_lock:
+                vlm_running = False
 
-    cv2.resizeWindow(
-        window_name,
-        display_width,
-        display_height,
-    )
+    while not stop_event.is_set():
+        success, frame = cap.read()
 
-    last_vlm_time = (
-        -VLM_INTERVAL_SECONDS
-    )
-
-    vlm_running = False
-
-    vlm_lock = threading.Lock()
-
-    while True:
-        ret, frame = cap.read()
-
-        if not ret:
+        if not success:
             break
 
-        frame_number = cap.get(
-            cv2.CAP_PROP_POS_FRAMES
+        timestamp = (
+            cap.get(
+                cv2.CAP_PROP_POS_MSEC
+            )
+            / 1000.0
         )
 
-        timestamp = (
-            frame_number / fps
-        )
+        original_frame = frame.copy()
 
         results = tracker.track(
-            frame
+            original_frame
         )
 
-        result = results[0]
+        display_frame = frame.copy()
 
-        workers = []
+        zone_monitor.draw_zone(
+            display_frame
+        )
 
-        if result.boxes.id is not None:
-            boxes = (
-                result.boxes.xyxy
-                .cpu()
-                .numpy()
-            )
+        if results:
+            result = results[0]
+            boxes = result.boxes
 
-            track_ids = (
-                result.boxes.id
-                .cpu()
-                .numpy()
-                .astype(int)
-            )
-
-            for box, worker_id in zip(
-                boxes,
-                track_ids,
-            ):
-                x1, y1, x2, y2 = (
-                    box.astype(int)
+            if boxes is not None:
+                ids = (
+                    boxes.id
+                    if boxes.id is not None
+                    else []
                 )
 
-                point = (
-                    int((x1 + x2) / 2),
-                    int(y2),
-                )
+                for index, box in enumerate(
+                    boxes.xyxy
+                ):
+                    if index >= len(ids):
+                        continue
 
-                zone_status = (
-                    zone_monitor.update(
-                        worker_id=worker_id,
-                        point=point,
-                        timestamp=timestamp,
-                    )
-                )
-
-                if zone_status["event"] is not None:
-                    print(
-                        f"[{timestamp:.2f}s] "
-                        f"WORKER {worker_id}: "
-                        f"{zone_status['event']}"
+                    worker_id = int(
+                        ids[index]
                     )
 
-                workers.append(
-                    {
-                        "worker_id": worker_id,
-                        "box": (
+                    x1, y1, x2, y2 = map(
+                        int,
+                        box,
+                    )
+
+                    x1 = max(
+                        0,
+                        min(
+                            x1,
+                            width - 1,
+                        ),
+                    )
+
+                    y1 = max(
+                        0,
+                        min(
+                            y1,
+                            height - 1,
+                        ),
+                    )
+
+                    x2 = max(
+                        0,
+                        min(
+                            x2,
+                            width - 1,
+                        ),
+                    )
+
+                    y2 = max(
+                        0,
+                        min(
+                            y2,
+                            height - 1,
+                        ),
+                    )
+
+                    foot_x = int(
+                        (x1 + x2) / 2
+                    )
+
+                    foot_y = y2
+
+                    zone_result = (
+                        zone_monitor.update(
+                            worker_id=worker_id,
+                            point=(
+                                foot_x,
+                                foot_y,
+                            ),
+                            timestamp=timestamp,
+                        )
+                    )
+
+                    if zone_result["event"] is not None:
+                        print()
+                        print(
+                            "KAVACH EVENT"
+                        )
+
+                        print(
+                            f"Worker: "
+                            f"{worker_id}"
+                        )
+
+                        print(
+                            f"Event: "
+                            f"{zone_result['event']}"
+                        )
+
+                        print(
+                            f"Dwell: "
+                            f"{zone_result['dwell_time']:.2f}s"
+                        )
+
+                    cv2.rectangle(
+                        display_frame,
+                        (x1, y1),
+                        (x2, y2),
+                        (0, 255, 0),
+                        2,
+                    )
+
+                    label = (
+                        f"Worker "
+                        f"{worker_id}"
+                    )
+
+                    if zone_result[
+                        "inside_zone"
+                    ]:
+                        label += (
+                            " | IN KAVACH"
+                        )
+
+                    cv2.putText(
+                        display_frame,
+                        label,
+                        (
+                            x1,
+                            max(
+                                20,
+                                y1 - 10,
+                            ),
+                        ),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 255, 0),
+                        2,
+                    )
+
+                    should_run_vlm = (
+                        timestamp
+                        - last_vlm_timestamp
+                        >= VLM_INTERVAL_SECONDS
+                    )
+
+                    with vlm_lock:
+                        can_start_vlm = (
+                            not vlm_running
+                        )
+
+                        if (
+                            should_run_vlm
+                            and can_start_vlm
+                        ):
+                            vlm_running = True
+
+                    if (
+                        should_run_vlm
+                        and can_start_vlm
+                    ):
+                        last_vlm_timestamp = (
+                            timestamp
+                        )
+
+                        vlm_frame = (
+                            original_frame.copy()
+                        )
+
+                        vlm_box = (
                             x1,
                             y1,
                             x2,
                             y2,
-                        ),
-                        "zone_status": zone_status,
-                    }
-                )
+                        )
 
-                frame = draw_worker(
-                    frame=frame,
-                    box=(
-                        x1,
-                        y1,
-                        x2,
-                        y2,
-                    ),
-                    worker_id=worker_id,
-                    zone_status=zone_status,
-                )
-
-        if (
-            timestamp - last_vlm_time
-            >= VLM_INTERVAL_SECONDS
-            and workers
-        ):
-            with vlm_lock:
-                if not vlm_running:
-                    selected_worker = workers[0]
-
-                    analysis_frame = frame.copy()
-
-                    worker_id = (
-                        selected_worker[
-                            "worker_id"
-                        ]
-                    )
-
-                    worker_box = (
-                        selected_worker[
-                            "box"
-                        ]
-                    )
-
-                    last_vlm_time = timestamp
-                    vlm_running = True
-
-                    def vlm_task():
-                        nonlocal vlm_running
-
-                        try:
-                            run_vlm_analysis(
-                                vlm=vlm,
-                                safety_rules=safety_rules,
-                                frame=analysis_frame,
-                                box=worker_box,
-                                worker_id=worker_id,
-                                timestamp=timestamp,
+                        vlm_thread = (
+                            threading.Thread(
+                                target=run_vlm,
+                                args=(
+                                    vlm_frame,
+                                    vlm_box,
+                                    worker_id,
+                                    timestamp,
+                                ),
+                                daemon=False,
                             )
-                        finally:
-                            with vlm_lock:
-                                vlm_running = False
+                        )
 
-                    thread = threading.Thread(
-                        target=vlm_task,
-                        daemon=True,
-                    )
+                        vlm_thread.start()
 
-                    thread.start()
+        display_width = 1280
 
-        frame = draw_kavach(
-            frame,
-            polygon,
+        scale = (
+            display_width
+            / width
+        )
+
+        display_height = int(
+            height * scale
+        )
+
+        resized_frame = cv2.resize(
+            display_frame,
+            (
+                display_width,
+                display_height,
+            ),
         )
 
         cv2.imshow(
-            window_name,
-            frame,
+            "Industrial Worker Safety Inspector",
+            resized_frame,
         )
 
         key = cv2.waitKey(1) & 0xFF
 
         if key == ord("q"):
             break
+
+    stop_event.set()
+
+    if vlm_thread is not None:
+        vlm_thread.join()
 
     cap.release()
     cv2.destroyAllWindows()

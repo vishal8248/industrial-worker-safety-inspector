@@ -1,6 +1,6 @@
-
 .env
+.env.*
+!.env.example
+
 __pycache__/
 *.pyc
-data/incident_frames/
-outputs/
